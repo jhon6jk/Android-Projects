@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Background Remover with U2Net (ONNX.js)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 400px;
+        }
+
+        #imagePreview {
+            max-width: 100%;
+            height: auto;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+
+        #processedImage {
+            max-width: 100%;
+            height: auto;
+            margin-top: 20px;
+        }
+
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        #resultContainer {
+            display: none;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Background Remover</h1>
+        <input type="file" id="imageUpload" accept="image/*">
+        <button onclick="removeBackground()">Remove Background</button>
+        <div id="imagePreviewContainer">
+            <img id="imagePreview" src="" alt="Image preview" />
+        </div>
+        <div id="resultContainer">
+            <h3>Processed Image:</h3>
+            <img id="processedImage" src="" alt="Processed Image" />
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/onnxjs@1.0.0/dist/onnx.js"></script>
+    <script>
+        let session;
+        let imagePreview = document.getElementById('imagePreview');
+        let processedImage = document.getElementById('processedImage');
+        let resultContainer = document.getElementById('resultContainer');
+
+        // Load U2Net ONNX model when the page is loaded
+        async function loadModel() {
+            session = new onnx.InferenceSession();
+            await session.loadModel('path/to/your/u2net.onnx'); // Replace with the correct model path
+            console.log('Model loaded successfully');
+        }
+
+        // Load the model on page load
+        window.onload = function () {
+            loadModel();
+        }
+
+        // Handle image upload and preview it
+        document.getElementById('imageUpload').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function () {
+                    imagePreview.src = reader.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Preprocess the image and convert it to a tensor for model inference
+        function preprocessImage(imageElement) {
+            const width = 320;
+            const height = 320;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imageElement, 0, 0, width, height);
+
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            // Prepare the input tensor (assuming U2Net needs a 3-channel image)
+            const input = new Float32Array(data.length / 4);
+            for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+                input[j] = data[i] / 255;  // Normalize RGBA values between 0 and 1
+            }
+            return new onnx.Tensor(input, 'float32', [1, 3, width, height]); // U2Net expects a 3-channel input
+        }
+
+        // Run background removal on the image
+        async function removeBackground() {
+            if (!session) {
+                alert("Model is still loading. Please try again later.");
+                return;
+            }
+
+            const tensor = preprocessImage(imagePreview);
+
+            try {
+                // Run inference
+                const output = await session.run([tensor]);
+                const resultTensor = output.values().next().value; // Assuming single output tensor
+
+                // Post-process the result and display the image
+                postProcess(resultTensor);
+            } catch (error) {
+                console.error("Error during inference:", error);
+                alert("An error occurred during background removal.");
+            }
+        }
+
+        // Post-process the result tensor to display the image
+        function postProcess(resultTensor) {
+            // Convert result tensor to image (this is a simplified example)
+            const width = 320;
+            const height = 320;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            const data = new Uint8ClampedArray(width * height * 4); // RGBA
+            for (let i = 0; i < resultTensor.data.length; i++) {
+                data[i * 4] = resultTensor.data[i] * 255; // R
+                data[i * 4 + 1] = resultTensor.data[i] * 255; // G
+                data[i * 4 + 2] = resultTensor.data[i] * 255; // B
+                data[i * 4 + 3] = 255; // A (fully opaque)
+            }
+
+            const imageData = new ImageData(data, width, height);
+            ctx.putImageData(imageData, 0, 0);
+
+            // Display the processed image
+            processedImage.src = canvas.toDataURL();
+            resultContainer.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
